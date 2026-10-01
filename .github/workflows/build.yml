@@ -1,0 +1,106 @@
+name: Sensei APK Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. GitHub repository'sini indir
+      - name: Repository'yi indir
+        uses: actions/checkout@v4
+
+      # 2. Java 17 kur
+      - name: Java 17 kur
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # 3. ZIP dosyasını bul ve aç
+      - name: Sensei ZIP dosyasını aç
+        shell: bash
+        run: |
+          set -e
+
+          echo "ZIP dosyaları aranıyor..."
+
+          ZIP_FILE=$(find . -maxdepth 3 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ZIP bulunamadı."
+            echo "Repository içinde bir .zip dosyası olduğundan emin ol."
+            exit 1
+          fi
+
+          echo "Bulunan ZIP: $ZIP_FILE"
+
+          mkdir -p extracted
+
+          unzip -o "$ZIP_FILE" -d extracted
+
+          echo "ZIP açıldı."
+
+          echo "Dosyalar:"
+          find extracted -maxdepth 3 -type f | head -100
+
+      # 4. Android projesinin bulunduğu klasörü bul
+      - name: Android projesini bul
+        shell: bash
+        run: |
+          set -e
+
+          PROJECT_DIR=$(find extracted -name "settings.gradle.kts" -o -name "settings.gradle" | head -n 1)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "Android projesi bulunamadı."
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$PROJECT_DIR")
+
+          echo "Android projesi: $PROJECT_DIR"
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      # 5. Gradle wrapper yoksa oluştur
+      - name: Gradle Wrapper hazırla
+        shell: bash
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          if [ ! -f "gradlew" ]; then
+            echo "gradlew bulunamadı."
+            echo "Gradle ile wrapper oluşturuluyor..."
+
+            gradle wrapper --gradle-version 8.10.2
+          fi
+
+          chmod +x gradlew
+
+      # 6. APK derle
+      - name: Debug APK oluştur
+        shell: bash
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          ./gradlew clean assembleDebug --stacktrace
+
+      # 7. APK'yı GitHub Actions Artifact olarak yükle
+      - name: APK'yı yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sensei-Gizli-Gorev-APK
+          path: |
+            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
